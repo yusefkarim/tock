@@ -56,14 +56,20 @@ use kernel::hil::gpio::{Configure, Input, InterruptWithValue, Output};
 use kernel::{AppId, Callback, Driver, Grant, ReturnCode};
 
 pub struct GPIO<'a, IP: gpio::InterruptPin<'a>> {
+    /// List of pins provided to the GPIO Driver capsule for userspace.
     pins: &'a [Option<&'a gpio::InterruptValueWrapper<'a, IP>>],
-    apps: Grant<Option<Callback>>,
+
+    /// Grant region for each app stores:
+    /// 1. an optional callback
+    /// 2. a bit array for which pins this app has selected a rising edge interrupt.
+    /// 3. a bit array for which pins this app has selected a falling edge interrupt.
+    apps: Grant<(Option<Callback>, u32, u32)>,
 }
 
 impl<'a, IP: gpio::InterruptPin<'a>> GPIO<'a, IP> {
     pub fn new(
         pins: &'a [Option<&'a gpio::InterruptValueWrapper<'a, IP>>],
-        grant: Grant<Option<Callback>>,
+        grant: Grant<(Option<Callback>, u32, u32)>,
     ) -> Self {
         for (i, maybe_pin) in pins.iter().enumerate() {
             if let Some(pin) = maybe_pin {
@@ -100,28 +106,38 @@ impl<'a, IP: gpio::InterruptPin<'a>> GPIO<'a, IP> {
         }
     }
 
-    fn configure_interrupt(&self, pin_num: u32, config: usize) -> ReturnCode {
+    fn configure_interrupt(&self, pin_num: u32, config: usize, appid: AppId) -> ReturnCode {
         let pins = self.pins.as_ref();
         let index = pin_num as usize;
         if let Some(pin) = pins[index] {
-            match config {
-                0 => {
+            // Record the interrupt being used for this app.
+            self.apps
+                .enter(appid, |cntr, _| {
+                    match config {
+                        0 => {
+                            // Both falling and rising.
+                            cntr.1 |= 1 << pin_num;
+                            cntr.2 |= 1 << pin_num;
+                        }
+                        1 => {
+                            // rising
+                            cntr.1 |= 1 << pin_num;
+                            cntr.2 &= !(1 << pin_num);
+                        }
+                        2 => {
+                            // falling
+                            cntr.2 |= 1 << pin_num;
+                            cntr.1 &= !(1 << pin_num);
+                        }
+                        _ => {}
+                    }
+
+                    // Always do either interrupt in case one app wants
+                    // falling and another app wants rising.
                     pin.enable_interrupts(gpio::InterruptEdge::EitherEdge);
                     ReturnCode::SUCCESS
-                }
-
-                1 => {
-                    pin.enable_interrupts(gpio::InterruptEdge::RisingEdge);
-                    ReturnCode::SUCCESS
-                }
-
-                2 => {
-                    pin.enable_interrupts(gpio::InterruptEdge::FallingEdge);
-                    ReturnCode::SUCCESS
-                }
-
-                _ => ReturnCode::ENOSUPPORT,
-            }
+                })
+                .unwrap_or_else(|err| err.into())
         } else {
             ReturnCode::ENODEVICE
         }
@@ -136,8 +152,23 @@ impl<'a, IP: gpio::InterruptPin<'a>> gpio::ClientWithValue for GPIO<'a, IP> {
             let pin_state = pin.read();
 
             // schedule callback with the pin number and value
-            self.apps.each(|callback| {
-                callback.map(|mut cb| cb.schedule(pin_num as usize, pin_state as usize, 0));
+            self.apps.each(|app| {
+                match pin_state {
+                    true => {
+                        // Pin is high, so this was a rising edge interrupt.
+                        if (app.1 & (1 << pin_num)) > 0 {
+                            app.0
+                                .map(|mut cb| cb.schedule(pin_num as usize, pin_state as usize, 0));
+                        }
+                    }
+                    false => {
+                        // Pin is low, so this was a falling edge interrupt.
+                        if (app.2 & (1 << pin_num)) > 0 {
+                            app.0
+                                .map(|mut cb| cb.schedule(pin_num as usize, pin_state as usize, 0));
+                        }
+                    }
+                }
             });
         }
     }
@@ -162,7 +193,7 @@ impl<'a, IP: gpio::InterruptPin<'a>> Driver for GPIO<'a, IP> {
             0 => self
                 .apps
                 .enter(app_id, |app, _| {
-                    **app = callback;
+                    (**app).0 = callback;
                     ReturnCode::SUCCESS
                 })
                 .unwrap_or_else(|err| err.into()),
@@ -202,7 +233,7 @@ impl<'a, IP: gpio::InterruptPin<'a>> Driver for GPIO<'a, IP> {
     /// - `7`: Configure interrupt on `pin` with `irq_config` in 0x00XX00000
     /// - `8`: Disable interrupt on `pin`.
     /// - `9`: Disable `pin`.
-    fn command(&self, command_num: usize, data1: usize, data2: usize, _: AppId) -> ReturnCode {
+    fn command(&self, command_num: usize, data1: usize, data2: usize, appid: AppId) -> ReturnCode {
         let pins = self.pins.as_ref();
         let pin_index = data1;
         match command_num {
@@ -300,7 +331,7 @@ impl<'a, IP: gpio::InterruptPin<'a>> Driver for GPIO<'a, IP> {
                 if pin_index >= pins.len() {
                     ReturnCode::EINVAL /* impossible pin */
                 } else {
-                    self.configure_interrupt(pin_index as u32, irq_config)
+                    self.configure_interrupt(pin_index as u32, irq_config, appid)
                 }
             }
 
@@ -311,8 +342,21 @@ impl<'a, IP: gpio::InterruptPin<'a>> Driver for GPIO<'a, IP> {
                     ReturnCode::EINVAL /* impossible pin */
                 } else {
                     if let Some(pin) = pins[pin_index] {
-                        pin.disable_interrupts();
-                        pin.deactivate_to_low_power();
+                        let _ = self.apps.enter(appid, |cntr, _| {
+                            cntr.1 &= !(1 << pin_index);
+                            cntr.2 &= !(1 << pin_index);
+                        });
+
+                        let in_use = self.apps.iter().any(|app| {
+                            app.enter(|cntr, _| {
+                                (cntr.1 & (1 << pin_index)) > 0 || (cntr.2 & (1 << pin_index)) > 0
+                            })
+                        });
+
+                        if !in_use {
+                            pin.disable_interrupts();
+                            pin.deactivate_to_low_power();
+                        }
                         ReturnCode::SUCCESS
                     } else {
                         ReturnCode::ENODEVICE
