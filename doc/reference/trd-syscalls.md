@@ -96,18 +96,43 @@ as return values. When the kernel invokes a callback on userspace, it passes
 
 |                        | CortexM | RISC-V |
 |------------------------|---------|--------|
-| Syscall Arguments      | r0-r3   | a1-a4  |
-| Syscall Return Values  | r0-r3   | a1-a4  |
-| Syscall Class ID       | svc     | a0     |
+| Syscall Arguments      | r0-r3   | a0-a3  |
+| Syscall Return Values  | r0-r3   | a0-a3  |
+| Syscall Class ID       | svc     | a4     |
 | Callback Arguments     | r0-r3   | a0-a3  |
 | Callback Return Values | None    | None   |
+
+How registers are mapped to arguments can affect performance and code size.
+For system calls implemented by capsules and drivers (`command`, `subcribe`,
+and `allow`), arguments that are passed to these calls should be placed
+in the same registers that will be used to invoke those calls. This allows
+the system call handlers in the kernel to pass them unchanged, rather than
+have to move them between registers.
+
+For example, `command` has this signature:
+
+```rust
+fn command(&self, minor_num: usize, r2: usize, r3: usize, caller_id: AppId) -> ReturnCode
+```
+ 
+This means that the value which will be passed as `r2` to the command
+should be placed in register r2 when userspace invokes the system
+call. That way, the system call handler can just leave register r2
+unchanged. If, instead, the argument `r2` were passed in register r3,
+the system call handler would have to spend an instruction moving
+register r3 to register r2.
+
+Driver system call implementations in the Tock kernel typically pass a reference
+to `self` as their first argument. Therefore, `r0` is usually used to dispatch
+onto the correct driver; this argument is consumed by the system call handler
+and replaced with `&self` when the actual system call method is invoked.
 
 3.2 Return Values
 ----------------------------------
 
 All system calls have the same return value format. A system call can return
 one of nine values, which are shown here. r0-r3 refer to the return value
-registers: for CortexM they are r0-r3 and for RISC-V they are a1-a4.
+registers: for CortexM they are r0-r3 and for RISC-V they are a0-a3.
 
 |                          | r0  | r1                 | r2                 | r3                 |
 |--------------------------|-----|--------------------|--------------------|--------------------|
@@ -253,7 +278,7 @@ drivers, so the set of valid Subscribe calls depends on the platform and what
 drivers were compiled into the kernel.
 
 The register arguments for Subscribe system calls are as follows. The registers
-r0-r3 correspond to r0-r3 on CortexM and a1-a4 on RISC-V.
+r0-r3 correspond to r0-r3 on CortexM and a0-a3 on RISC-V.
 
 | Argument               | Register |
 |------------------------|----------|
@@ -261,6 +286,7 @@ r0-r3 correspond to r0-r3 on CortexM and a1-a4 on RISC-V.
 | Syscall identifier     | r1       |
 | Callback pointer       | r2       |
 | Application data       | r3       |
+
 
 The `callback pointer` is the address of the first instruction of
 the callback function. The `application data` argument is a parameter
@@ -306,7 +332,7 @@ so the set of valid Command calls depends on the platform and what drivers were
 compiled into the kernel.
 
 The register arguments for Command system calls are as follows. The registers
-r0-r3 correspond to r0-r3 on CortexM and a1-a4 on RISC-V.
+r0-r3 correspond to r0-r3 on CortexM and a0-a3 on RISC-V.
 
 | Argument               | Register |
 |------------------------|----------|
@@ -335,7 +361,7 @@ to Allow return the previous buffer passed. Therefore, to regain access to the
 buffer, the process must call the same Allow system call again. 
 
 The register arguments for Allow system calls are as follows. The registers
-r0-r3 correspond to r0-r3 on CortexM and a1-a4 on RISC-V.
+r0-r3 correspond to r0-r3 on CortexM and a0-a3 on RISC-V.
 
 | Argument               | Register |
 |------------------------|----------|
@@ -386,7 +412,7 @@ introduces more complex memory management.
 The Memop class is how a userspace process requests and provides
 information about its address space.  The register arguments for 
 Allow system calls are as follows. The registers r0-r3 correspond
-to r0-r3 on CortexM and a1-a4 on RISC-V.
+to r0-r3 on CortexM and a0-a3 on RISC-V.
 
 | Argument               | Register |
 |------------------------|----------|
