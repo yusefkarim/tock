@@ -3,6 +3,7 @@
 
 use core::fmt::Write;
 use core::ptr::{read_volatile, write_volatile};
+use kernel::syscall::SyscallReturnValue;
 
 /// This is used in the syscall handler. When set to 1 this means the
 /// svc_handler was called. Marked `pub` because it is used in the cortex-m*
@@ -95,12 +96,16 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
         &self,
         stack_pointer: *const usize,
         _state: &mut Self::StoredState,
-        return_value: isize,
+        return_value: &SyscallReturnValue,
     ) {
-        // For the Cortex-M arch we set this in the same place that r0 was
-        // passed.
-        let sp = stack_pointer as *mut isize;
-        write_volatile(sp, return_value);
+        // For the Cortex-M arch we set these in the same place that r0-r3 were
+        // passed. 
+        // TODO: do these need to be volatile? -pal
+        let stack_bottom = stack_pointer as *mut u32;
+        return_value.into_registers(&mut *stack_bottom.offset(0),
+                                    &mut *stack_bottom.offset(4),
+                                    &mut *stack_bottom.offset(8),
+                                    &mut *stack_bottom.offset(12))
     }
 
     /// When the process calls `svc` to enter the kernel, the hardware

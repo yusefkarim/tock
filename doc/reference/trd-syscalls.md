@@ -143,9 +143,9 @@ registers: for CortexM they are r0-r3 and for RISC-V they are a0-a3.
 | Success                  | 128 |                    |                    |                    |
 | Success with u32         | 129 | Return Value 0     |                    |                    |
 | Success with 2 u32       | 130 | Return Value 0     | Return Value 1     |                    |
-| Success with 3 u32       | 131 | Return Value 0     | Return Value 1     | Return Value 2     |
-| Success with u64         | 132 | Return Value 0 LSB | Return Value 0 MSB |                    |
-| Success with u64 and u32 | 133 | Return Value 0 LSB | Return Value 0 MSB | Return Value 1     |
+| Success with u64         | 131 | Return Value 0 LSB | Return Value 0 MSB |                    |
+| Success with 3 u32       | 132 | Return Value 0     | Return Value 1     | Return Value 2     |
+| Success with u32 and u64 | 133 | Return Value 0     | Return Value 1 LSB | Return Value 1 MSB | 
 
 There are a wide variety of failure and success values because different
 system calls need to pass different amounts of data. A command that requests

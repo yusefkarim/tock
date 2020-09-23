@@ -3,6 +3,7 @@
 use core::fmt::Write;
 
 use crate::process;
+use crate::returncode::ReturnCode;
 
 /// The syscall number assignments.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -62,6 +63,173 @@ pub enum ContextSwitchReason {
     Interrupted,
 }
 
+
+// To allow type refinement on the enum (e.g., factory constructor
+// methods), we need to embed structs within the enum values.
+// https://github.com/rust-lang/rfcs/issues/754
+// https://github.com/rust-lang/rust/issues/1679
+// https://www.reddit.com/r/rust/comments/2rdoxx/enum_variants_as_types/
+// -pal 9/22/20
+#[derive(Debug)]
+pub struct SyscallFailure {error: ReturnCode}
+#[derive(Debug)]
+pub struct SyscallFailureU32 {error: ReturnCode, rval0: u32}
+#[derive(Debug)]
+pub struct SyscallFailureU32U32 {error: ReturnCode, rval0: u32, rval1: u32}
+// Frustrating question: we want the u64 to be 8-byte aligned;
+// how do we ensure that? This layout assumes the enum encoding is
+// the first word. -pal
+#[derive(Debug)]
+pub struct SyscallFailureU64 {error: ReturnCode, rval0: u64}
+#[derive(Debug)]
+pub struct SyscallSuccessU32 {rval0: u32}
+#[derive(Debug)]
+pub struct SyscallSuccessU32U32 {rval0: u32, rval1: u32}
+#[derive(Debug)]
+pub struct SyscallSuccessU64 {rval0: u64}
+#[derive(Debug)]
+pub struct SyscallSuccessU32U32U32 {rval0: u32, rval1: u32, rval2: u32}
+// Frustrating question: we want the u64 to be 8-byte aligned;
+// how do we ensure that? This layout assumes the enum encoding is
+// the first word. -pal
+#[derive(Debug)]
+pub struct SyscallSuccessU32U64 {rval0: u32, rval1: u64}
+
+/// Enumeration of the possible return values from a system call.
+#[derive(Debug)]
+pub enum SyscallReturnValue {
+    Failure (SyscallFailure),
+    FailureU32 (SyscallFailureU32), 
+    FailureU32U32 (SyscallFailureU32U32),
+    FailureU64 (SyscallFailureU64),
+    Success,
+    SuccessU32 (SyscallSuccessU32),
+    SuccessU32U32 (SyscallSuccessU32U32),
+    SuccessU64 (SyscallSuccessU64),
+    SuccessU32U32U32 (SyscallSuccessU32U32U32),
+    // Frustrating question: we want the u64 to be 8-byte aligned;
+    // how do we ensure that? This layout assumes the enum encoding is
+    // the first word. -pal
+    SuccessU32U64 (SyscallSuccessU32U64),
+}
+
+impl SyscallReturnValue {
+    fn return_code_to_error_code(rcode: ReturnCode) -> u32 {
+        match rcode {
+            ReturnCode::SuccessWithValue { value: _ } => 0,
+            ReturnCode::SUCCESS => 0,
+            ReturnCode::FAIL => 1,
+            ReturnCode::EBUSY => 2,
+            ReturnCode::EALREADY => 3,
+            ReturnCode::EOFF => 4,
+            ReturnCode::ERESERVE => 5,
+            ReturnCode::EINVAL => 6,
+            ReturnCode::ESIZE => 7,
+            ReturnCode::ECANCEL => 8,
+            ReturnCode::ENOMEM => 9,
+            ReturnCode::ENOSUPPORT => 10,
+            ReturnCode::ENODEVICE => 11,
+            ReturnCode::EUNINSTALLED => 12,
+            ReturnCode::ENOACK => 13,
+        }
+    }
+    pub fn into_registers(&self, r0: &mut u32, r1: &mut u32, r2: &mut u32, r3: &mut u32) {
+        match self {
+            SyscallReturnValue::Failure(fail) => {
+                *r0 = 0;
+                *r1 = Self::return_code_to_error_code(fail.error);
+            },
+            SyscallReturnValue::FailureU32(fail) => {
+                *r0 = 1;
+                *r1 = Self::return_code_to_error_code(fail.error);
+                *r2 = fail.rval0;
+            },
+            SyscallReturnValue::FailureU32U32(fail) => {
+                *r0 = 2;
+                *r1 = Self::return_code_to_error_code(fail.error);
+                *r2 = fail.rval0;
+                *r3 = fail.rval1;
+            },
+            SyscallReturnValue::FailureU64(fail) => {
+                *r0 = 3;
+                *r1 = Self::return_code_to_error_code(fail.error);
+                *r2 = (fail.rval0 & 0xffff_ffffff) as u32;
+                *r3 = (fail.rval0 >> 32) as u32;
+            },
+            SyscallReturnValue::Success => {
+                *r0 = 128;
+            },
+            SyscallReturnValue::SuccessU32(success) => {
+                *r0 = 129;
+                *r1 = success.rval0;
+            },
+            SyscallReturnValue::SuccessU32U32(success) => {
+                *r0 = 130;
+                *r1 = success.rval0;
+                *r2 = success.rval1;
+            },
+            SyscallReturnValue::SuccessU64(success) => {
+                *r0 = 131;
+                *r1 = (success.rval0 & 0xffff_ffff) as u32;
+                *r2 = (success.rval0 >> 32) as u32;
+            },
+            SyscallReturnValue::SuccessU32U32U32(success) => {
+                *r0 = 132;
+                *r1 = success.rval0;
+                *r2 = success.rval1;
+                *r3 = success.rval2;
+            },
+            SyscallReturnValue::SuccessU32U64(success) => {
+                *r0 = 133;
+                *r1 = success.rval0;
+                *r2 = (success.rval1 & 0xffff_ffff) as u32;
+                *r3 = (success.rval1 >> 32) as u32;
+            },
+        }
+    }
+}
+
+
+pub struct SrvFactory;
+
+impl SrvFactory {
+    pub fn failure(error: ReturnCode) -> SyscallFailure {
+        SyscallFailure {error}
+    }
+
+    pub fn failure_u32(error: ReturnCode, rval0: u32) -> SyscallFailureU32 {
+        SyscallFailureU32 {error, rval0}
+    }
+
+    pub fn failure_u32_u32(error: ReturnCode, rval0: u32, rval1: u32) -> SyscallFailureU32U32 {
+        SyscallFailureU32U32 {error, rval0, rval1}
+    }
+
+    pub fn failure_u64(error: ReturnCode, rval0: u64) -> SyscallFailureU64 {
+        SyscallFailureU64 {error, rval0}
+    }
+
+    pub fn success_u32(rval0: u32) -> SyscallSuccessU32 {
+        SyscallSuccessU32 {rval0}
+    }
+
+    pub fn success_u32_u32(rval0: u32, rval1: u32) -> SyscallSuccessU32U32 {
+        SyscallSuccessU32U32 {rval0, rval1}
+    }
+
+    pub fn success_u64(rval0: u64) -> SyscallSuccessU64 {
+        SyscallSuccessU64 {rval0}
+    }
+
+    pub fn success_u32_u32_u32(rval0: u32, rval1: u32, rval2: u32) -> SyscallSuccessU32U32U32 {
+        SyscallSuccessU32U32U32 {rval0, rval1, rval2}
+    }
+
+    pub fn success_u32_u64(rval0: u32, rval1: u64) -> SyscallSuccessU32U64 {
+        SyscallSuccessU32U64 {rval0, rval1}
+    }
+}
+
 /// This trait must be implemented by the architecture of the chip Tock is
 /// running on. It allows the kernel to manage switching to and from processes
 /// in an architecture-agnostic manner.
@@ -103,7 +271,7 @@ pub trait UserspaceKernelBoundary {
         &self,
         stack_pointer: *const usize,
         state: &mut Self::StoredState,
-        return_value: isize,
+        return_value: &SyscallReturnValue,
     );
 
     /// Set the function that the process should execute when it is resumed.

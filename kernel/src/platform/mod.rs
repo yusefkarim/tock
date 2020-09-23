@@ -2,7 +2,6 @@
 
 use crate::driver::Driver;
 use crate::process;
-use crate::returncode;
 use crate::syscall;
 use core::fmt::Write;
 
@@ -56,7 +55,7 @@ pub trait Platform {
         &self,
         _process: &dyn process::ProcessType,
         _syscall: &syscall::Syscall,
-    ) -> Result<(), returncode::ReturnCode> {
+    ) -> Result<(), syscall::SyscallReturnValue> {
         Ok(())
     }
 }

@@ -17,7 +17,14 @@ use crate::platform::systick::SysTick;
 use crate::platform::{Chip, Platform};
 use crate::process::{self, Task};
 use crate::returncode::ReturnCode;
-use crate::syscall::{ContextSwitchReason, Syscall};
+use crate::syscall::{ContextSwitchReason, SrvFactory, Syscall, SyscallReturnValue};
+
+fn rcode_to_rval(rcode: ReturnCode) -> SyscallReturnValue{
+    match rcode {
+        ReturnCode::SUCCESS => SyscallReturnValue::Success,
+        _ => SyscallReturnValue::Failure(SrvFactory::failure(rcode)),
+    }
+}
 
 /// The time a process is permitted to run before being pre-empted
 const KERNEL_TICK_DURATION_US: u32 = 10000;
@@ -382,7 +389,7 @@ impl Kernel {
                             // decide how to handle the error.
                             if syscall != Syscall::YIELD {
                                 if let Err(response) = platform.filter_syscall(process, &syscall) {
-                                    process.set_syscall_return_value(response.into());
+                                    process.set_syscall_return_value(&response);
                                     continue;
                                 }
                             }
@@ -393,15 +400,14 @@ impl Kernel {
                                     let res = memop::memop(process, operand, arg0);
                                     if config::CONFIG.trace_syscalls {
                                         debug!(
-                                            "[{:?}] memop({}, {:#x}) = {:#x} = {:?}",
+                                            "[{:?}] memop({}, {:#x}) = {:?}",
                                             process.appid(),
                                             operand,
                                             arg0,
-                                            usize::from(res),
                                             res
                                         );
                                     }
-                                    process.set_syscall_return_value(res.into());
+                                    process.set_syscall_return_value(&res);
                                 }
                                 Syscall::YIELD => {
                                     if config::CONFIG.trace_syscalls {
@@ -447,17 +453,17 @@ impl Kernel {
                                         );
                                     if config::CONFIG.trace_syscalls {
                                         debug!(
-                                            "[{:?}] subscribe({:#x}, {}, @{:#x}, {:#x}) = {:#x} = {:?}",
+                                            "[{:?}] subscribe({:#x}, {}, @{:#x}, {:#x}) = = {:?}",
                                             process.appid(),
                                             driver_number,
                                             subdriver_number,
                                             callback_ptr as usize,
                                             appdata,
-                                            usize::from(res),
                                             res
                                         );
                                     }
-                                    process.set_syscall_return_value(res.into());
+                                    let sres = rcode_to_rval(res);
+                                    process.set_syscall_return_value(&sres);
                                 }
                                 Syscall::COMMAND {
                                     driver_number,
@@ -480,17 +486,17 @@ impl Kernel {
                                         );
                                     if config::CONFIG.trace_syscalls {
                                         debug!(
-                                            "[{:?}] cmd({:#x}, {}, {:#x}, {:#x}) = {:#x} = {:?}",
+                                            "[{:?}] cmd({:#x}, {}, {:#x}, {:#x}) = {:?}",
                                             process.appid(),
                                             driver_number,
                                             subdriver_number,
                                             arg0,
                                             arg1,
-                                            usize::from(res),
                                             res
                                         );
                                     }
-                                    process.set_syscall_return_value(res.into());
+                                    let sres = rcode_to_rval(res);
+                                    process.set_syscall_return_value(&sres);
                                 }
                                 Syscall::ALLOW {
                                     driver_number,
@@ -525,7 +531,8 @@ impl Kernel {
                                             res
                                         );
                                     }
-                                    process.set_syscall_return_value(res.into());
+                                    let sres = rcode_to_rval(res);
+                                    process.set_syscall_return_value(&sres);
                                 }
                             }
                         }

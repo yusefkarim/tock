@@ -4,7 +4,7 @@ use core::fmt::Write;
 
 use crate::csr::mcause;
 use kernel;
-use kernel::syscall::ContextSwitchReason;
+use kernel::syscall::{ContextSwitchReason, SyscallReturnValue};
 
 /// This holds all of the state that the kernel must keep for the process when
 /// the process is not executing.
@@ -71,11 +71,12 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
         &self,
         _stack_pointer: *const usize,
         state: &mut Self::StoredState,
-        return_value: isize,
+        return_value: &SyscallReturnValue,
     ) {
-        // Just need to put the return value in the a0 register for when the
-        // process resumes executing.
-        state.regs[R_A0] = return_value as usize; // a0 = return value
+        // But the return value into a0-a3 for when the process
+        // resumes executing.
+        return_value.into_registers(&mut (state.regs[R_A0] as u32), &mut (state.regs[R_A1] as u32),
+                                    &mut (state.regs[R_A2] as u32), &mut (state.regs[R_A3] as u32));
     }
 
     unsafe fn set_process_function(
@@ -343,11 +344,11 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
                         state.pc += 4;
 
                         let syscall = kernel::syscall::arguments_to_syscall(
-                            state.regs[R_A0] as u8,
+                            state.regs[R_A4] as u8,
+                            state.regs[R_A0],
                             state.regs[R_A1],
                             state.regs[R_A2],
                             state.regs[R_A3],
-                            state.regs[R_A4],
                         );
                         match syscall {
                             Some(s) => ContextSwitchReason::SyscallFired { syscall: s },

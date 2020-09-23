@@ -2,6 +2,7 @@
 
 use crate::process::ProcessType;
 use crate::returncode::ReturnCode;
+use crate::syscall::{SrvFactory, SyscallReturnValue};
 
 /// Handle the `memop` syscall.
 ///
@@ -36,48 +37,48 @@ use crate::returncode::ReturnCode;
 ///   where the app has put the start of its heap. This is not strictly
 ///   necessary for correct operation, but allows for better debugging if the
 ///   app crashes.
-crate fn memop(process: &dyn ProcessType, op_type: usize, r1: usize) -> ReturnCode {
+crate fn memop(process: &dyn ProcessType, op_type: usize, r1: usize) -> SyscallReturnValue {
     match op_type {
         // Op Type 0: BRK
         0 /* BRK */ => {
             process.brk(r1 as *const u8)
-                .map(|_| ReturnCode::SUCCESS)
-                .unwrap_or(ReturnCode::ENOMEM)
+                .map(|_| SyscallReturnValue::Success)
+                .unwrap_or(SyscallReturnValue::Failure(SrvFactory::failure(ReturnCode::ENOMEM)))
         },
 
         // Op Type 1: SBRK
         1 /* SBRK */ => {
             process.sbrk(r1 as isize)
-                .map(|addr| ReturnCode::SuccessWithValue { value: addr as usize })
-                .unwrap_or(ReturnCode::ENOMEM)
+                .map(|addr| SyscallReturnValue::SuccessU32(SrvFactory::success_u32(addr as u32)))
+                .unwrap_or(SyscallReturnValue::Failure(SrvFactory::failure(ReturnCode::ENOMEM)))
         },
 
         // Op Type 2: Process memory start
-        2 => ReturnCode::SuccessWithValue { value: process.mem_start() as usize },
+        2 => SyscallReturnValue::SuccessU32(SrvFactory::success_u32(process.mem_start() as u32)),
 
         // Op Type 3: Process memory end
-        3 => ReturnCode::SuccessWithValue { value: process.mem_end() as usize },
+        3 => SyscallReturnValue::SuccessU32(SrvFactory::success_u32(process.mem_end() as u32)),
 
         // Op Type 4: Process flash start
-        4 => ReturnCode::SuccessWithValue { value: process.flash_start() as usize },
+        4 => SyscallReturnValue::SuccessU32(SrvFactory::success_u32(process.flash_start() as u32)),
 
         // Op Type 5: Process flash end
-        5 => ReturnCode::SuccessWithValue { value: process.flash_end() as usize },
+        5 => SyscallReturnValue::SuccessU32(SrvFactory::success_u32(process.flash_end() as u32)),
 
         // Op Type 6: Grant region begin
-        6 => ReturnCode::SuccessWithValue { value: process.kernel_memory_break() as usize },
+        6 => SyscallReturnValue::SuccessU32(SrvFactory::success_u32(process.kernel_memory_break() as u32)),
 
         // Op Type 7: Number of defined writeable regions in the TBF header.
-        7 => ReturnCode::SuccessWithValue { value: process.number_writeable_flash_regions() },
+        7 => SyscallReturnValue::SuccessU32(SrvFactory::success_u32(process.number_writeable_flash_regions() as u32)),
 
         // Op Type 8: The start address of the writeable region indexed by r1.
         8 => {
-            let flash_start = process.flash_start() as usize;
+            let flash_start = process.flash_start() as u32;
             let (offset, size) = process.get_writeable_flash_region(r1);
             if size == 0 {
-                ReturnCode::FAIL
+                SyscallReturnValue::Failure(SrvFactory::failure(ReturnCode::ENOMEM))
             } else {
-                ReturnCode::SuccessWithValue { value: flash_start + offset as usize }
+                SyscallReturnValue::SuccessU32(SrvFactory::success_u32(flash_start + offset as u32))
             }
         }
 
@@ -88,26 +89,26 @@ crate fn memop(process: &dyn ProcessType, op_type: usize, r1: usize) -> ReturnCo
             let flash_start = process.flash_start() as usize;
             let (offset, size) = process.get_writeable_flash_region(r1);
             if size == 0 {
-                ReturnCode::FAIL
+                SyscallReturnValue::Failure(SrvFactory::failure(ReturnCode::ENOMEM))
             } else {
-                ReturnCode::SuccessWithValue { value: flash_start +
-                                                      offset as usize +
-                                                      size as usize }
+                let val: u32 = flash_start as u32 + offset + size;
+                SyscallReturnValue::SuccessU32(SrvFactory::success_u32(val))
             }
         }
 
         // Op Type 10: Specify where the start of the app stack is.
         10 => {
             process.update_stack_start_pointer(r1 as *const u8);
-            ReturnCode::SUCCESS
+            SyscallReturnValue::Success
         }
 
         // Op Type 11: Specify where the start of the app heap is.
         11 => {
             process.update_heap_start_pointer(r1 as *const u8);
-            ReturnCode::SUCCESS
+            SyscallReturnValue::Success
         }
 
-        _ => ReturnCode::ENOSUPPORT,
+        _ => SyscallReturnValue::Failure(SrvFactory::failure(ReturnCode::ENOSUPPORT)),
+         
     }
 }
