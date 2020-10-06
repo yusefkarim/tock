@@ -19,7 +19,7 @@ use crate::platform::mpu::{self, MPU};
 use crate::platform::Chip;
 use crate::returncode::ReturnCode;
 use crate::sched::Kernel;
-use crate::syscall::{self, Syscall, SyscallReturnValue, UserspaceKernelBoundary};
+use crate::syscall::{self, Syscall, AllowResult, CommandResult, SubscribeResult, UserspaceKernelBoundary};
 use crate::tbfheader;
 use core::cmp::max;
 
@@ -421,11 +421,25 @@ pub trait ProcessType {
     // functions for processes that are architecture specific
 
     /// Set the return value the process should see when it begins executing
-    /// again after the syscall.
+    /// again after the command syscall.
     ///
     /// It is not valid to call this function when the process is inactive (i.e.
     /// the process will not run again).
-    unsafe fn set_syscall_return_value(&self, return_value: &SyscallReturnValue);
+    unsafe fn set_syscall_return_command(&self, return_value: &CommandResult);
+
+    /// Set the return value the process should see when it begins executing
+    /// again after the subscribe syscall.
+    ///
+    /// It is not valid to call this function when the process is inactive (i.e.
+    /// the process will not run again).
+    unsafe fn set_syscall_return_subscribe(&self, return_value: &SubscribeResult);
+
+    /// Set the return value the process should see when it begins executing
+    /// again after the allow syscall.
+    ///
+    /// It is not valid to call this function when the process is inactive (i.e.
+    /// the process will not run again).
+    unsafe fn set_syscall_return_allow(&self, return_value: &AllowResult);
 
     /// Set the function that is to be executed when the process is resumed.
     ///
@@ -1173,11 +1187,29 @@ impl<C: Chip> ProcessType for Process<'a, C> {
         self.process_name
     }
 
-    unsafe fn set_syscall_return_value(&self, return_value: &SyscallReturnValue) {
+    unsafe fn set_syscall_return_command(&self, return_value: &CommandResult) {
         self.stored_state.map(|stored_state| {
             self.chip
                 .userspace_kernel_boundary()
-                .set_syscall_return_value(self.sp(), stored_state, return_value);
+                .set_syscall_return_command(self.sp(), stored_state, return_value);
+        });
+    }
+
+
+    unsafe fn set_syscall_return_subscribe(&self, return_value: &SubscribeResult) {
+        self.stored_state.map(|stored_state| {
+            self.chip
+                .userspace_kernel_boundary()
+                .set_syscall_return_subscribe(self.sp(), stored_state, return_value);
+        });
+    }
+
+
+    unsafe fn set_syscall_return_allow(&self, return_value: &AllowResult) {
+        self.stored_state.map(|stored_state| {
+            self.chip
+                .userspace_kernel_boundary()
+                .set_syscall_return_allow(self.sp(), stored_state, return_value);
         });
     }
 

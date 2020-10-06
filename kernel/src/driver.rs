@@ -41,6 +41,7 @@
 use crate::callback::{AppId, Callback};
 use crate::mem::{AppSlice, Shared};
 use crate::returncode::ReturnCode;
+use crate::syscall::{AllowResult, SrvFactory};
 
 /// `Driver`s implement the three driver-specific system calls: `subscribe`,
 /// `command` and `allow`.
@@ -107,8 +108,8 @@ pub trait Driver {
         &self,
         app: AppId,
         minor_num: usize,
-        slice: Option<AppSlice<Shared, u8>>,
-    ) -> ReturnCode {
-        ReturnCode::ENOSUPPORT
+        slice: AppSlice<Shared, u8>,
+    ) -> AllowResult {
+        AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::ENOSUPPORT,	slice))
     }
 }

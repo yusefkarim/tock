@@ -5,6 +5,8 @@ use core::fmt::Write;
 use crate::process;
 use crate::returncode::ReturnCode;
 
+use crate::mem::{AppPtr, AppSlice, Shared};
+
 /// The syscall number assignments.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Syscall {
@@ -95,9 +97,15 @@ pub struct SyscallSuccessU32U32U32 {rval0: u32, rval1: u32, rval2: u32}
 #[derive(Debug)]
 pub struct SyscallSuccessU32U64 {rval0: u32, rval1: u64}
 
+#[derive(Debug)]
+pub struct SyscallSuccessAllow {buf: AppSlice<Shared, u8>}
+
+#[derive(Debug)]
+pub struct SyscallFailureAllow {error: ReturnCode, buf: AppSlice<Shared, u8>}
+
 /// Enumeration of the possible return values from a system call.
 #[derive(Debug)]
-pub enum SyscallReturnValue {
+pub enum CommandResult {
     Failure (SyscallFailure),
     FailureU32 (SyscallFailureU32), 
     FailureU32U32 (SyscallFailureU32U32),
@@ -113,7 +121,19 @@ pub enum SyscallReturnValue {
     SuccessU32U64 (SyscallSuccessU32U64),
 }
 
-impl SyscallReturnValue {
+#[derive(Debug)]
+pub enum SubscribeResult {
+    Failure (SyscallFailure),
+    Success
+}
+
+#[derive(Debug)]
+pub enum AllowResult {
+    Failure (SyscallFailureAllow),
+    Success (SyscallSuccessAllow),
+}
+
+pub trait SyscallResult {
     fn return_code_to_error_code(rcode: ReturnCode) -> u32 {
         match rcode {
             ReturnCode::SuccessWithValue { value: _ } => 0,
@@ -133,53 +153,87 @@ impl SyscallReturnValue {
             ReturnCode::ENOACK => 13,
         }
     }
-    pub fn into_registers(&self, r0: &mut u32, r1: &mut u32, r2: &mut u32, r3: &mut u32) {
+    fn into_registers(&self, r0: &mut u32, r1: &mut u32, r2: &mut u32, r3: &mut u32);
+}
+
+impl SyscallResult for SubscribeResult {
+    fn into_registers(&self, r0: &mut u32, r1: &mut u32, _r2: &mut u32, _r3: &mut u32) {
         match self {
-            SyscallReturnValue::Failure(fail) => {
+            SubscribeResult::Failure(fail) => {
                 *r0 = 0;
                 *r1 = Self::return_code_to_error_code(fail.error);
             },
-            SyscallReturnValue::FailureU32(fail) => {
+            SubscribeResult::Success => {
+                *r0 = 128;
+            },
+        }
+    }
+}
+impl SyscallResult for AllowResult {
+    fn into_registers(&self, r0: &mut u32, r1: &mut u32, r2: &mut u32, r3: &mut u32) {
+        match self {
+            AllowResult::FailureU32U32(fail) => {
+                *r0 = 2;
+                *r1 = Self::return_code_to_error_code(fail.error);
+                *r2 = fail.val.ptr.ptr as u32;
+                *r3 = fail.val.ptr.len as u32;
+            },
+            AllowResult::SuccessU32U32(success) => {
+                *r0 = 130;
+                *r1 = success.val.ptr.ptr as u32;
+                *r2 = success.val.ptr.len as u32;	
+            },
+        }
+    }
+}
+impl SyscallResult for CommandResult {
+    fn into_registers(&self, r0: &mut u32, r1: &mut u32, r2: &mut u32, r3: &mut u32) {
+        match self {
+            CommandResult::Failure(fail) => {
+                *r0 = 0;
+                *r1 = Self::return_code_to_error_code(fail.error);
+            },
+            CommandResult::FailureU32(fail) => {
                 *r0 = 1;
                 *r1 = Self::return_code_to_error_code(fail.error);
                 *r2 = fail.rval0;
             },
-            SyscallReturnValue::FailureU32U32(fail) => {
+            CommandResult::FailureU32U32(fail) => {
                 *r0 = 2;
                 *r1 = Self::return_code_to_error_code(fail.error);
                 *r2 = fail.rval0;
                 *r3 = fail.rval1;
             },
-            SyscallReturnValue::FailureU64(fail) => {
+            CommandResult::FailureU64(fail) => {
                 *r0 = 3;
                 *r1 = Self::return_code_to_error_code(fail.error);
                 *r2 = (fail.rval0 & 0xffff_ffffff) as u32;
                 *r3 = (fail.rval0 >> 32) as u32;
             },
-            SyscallReturnValue::Success => {
+            CommandResult::Success => {
                 *r0 = 128;
             },
-            SyscallReturnValue::SuccessU32(success) => {
+            CommandResult::SuccessU32(success) => {
                 *r0 = 129;
                 *r1 = success.rval0;
             },
-            SyscallReturnValue::SuccessU32U32(success) => {
+            CommandResult::SuccessU32U32(success) => {
                 *r0 = 130;
                 *r1 = success.rval0;
                 *r2 = success.rval1;
             },
-            SyscallReturnValue::SuccessU64(success) => {
+            CommandResult::SuccessU64(success) => {
                 *r0 = 131;
                 *r1 = (success.rval0 & 0xffff_ffff) as u32;
                 *r2 = (success.rval0 >> 32) as u32;
             },
-            SyscallReturnValue::SuccessU32U32U32(success) => {
+            CommandResult::SuccessU32U32U32(success) => {
                 *r0 = 132;
                 *r1 = success.rval0;
                 *r2 = success.rval1;
                 *r3 = success.rval2;
             },
-            SyscallReturnValue::SuccessU32U64(success) => {
+            CommandResult::SuccessU32U64(success) => {
                 *r0 = 133;
                 *r1 = success.rval0;
                 *r2 = (success.rval1 & 0xffff_ffff) as u32;
@@ -228,6 +282,14 @@ impl SrvFactory {
     pub fn success_u32_u64(rval0: u32, rval1: u64) -> SyscallSuccessU32U64 {
         SyscallSuccessU32U64 {rval0, rval1}
     }
+
+    pub fn success_allow(buf: AppSlice<Shared, u8>) -> SyscallSuccessAllow {
+        SyscallSuccessAllow {buf}
+    }
+
+    pub fn failure_allow(error: ReturnCode, buf: AppSlice<Shared, u8>) -> SyscallFailureAllow {
+        SyscallFailureAllow {error, buf}
+    } 
 }
 
 /// This trait must be implemented by the architecture of the chip Tock is
@@ -260,18 +322,50 @@ pub trait UserspaceKernelBoundary {
     ) -> Result<*const usize, ()>;
 
     /// Set the return value the process should see when it begins executing
-    /// again after the syscall. This will only be called after a process has
-    /// called a syscall.
+    /// again after a command syscall. This will only be called after a
+    /// process has called a command.
     ///
     /// To help implementations, both the current stack pointer of the process
     /// and the saved state for the process are provided. The `return_value` is
     /// the value that should be passed to the process so that when it resumes
     /// executing it knows the return value of the syscall it called.
-    unsafe fn set_syscall_return_value(
+    unsafe fn set_syscall_return_command(
         &self,
         stack_pointer: *const usize,
         state: &mut Self::StoredState,
-        return_value: &SyscallReturnValue,
+        return_value: &CommandResult,
+    );
+
+
+    /// Set the return value the process should see when it begins executing
+    /// again after a subscribe syscall. This will only be called after a
+    /// process has called a subscribe.
+    ///
+    /// To help implementations, both the current stack pointer of the process
+    /// and the saved state for the process are provided. The `return_value` is
+    /// the value that should be passed to the process so that when it resumes
+    /// executing it knows the return value of the syscall it called.
+    unsafe fn set_syscall_return_subscribe(
+        &self,
+        stack_pointer: *const usize,
+        state: &mut Self::StoredState,
+        return_value: &SubscribeResult,
+    );
+
+
+    /// Set the return value the process should see when it begins executing
+    /// again after an allow syscall. This will only be called after a
+    /// process has called an allow.
+    ///
+    /// To help implementations, both the current stack pointer of the process
+    /// and the saved state for the process are provided. The `return_value` is
+    /// the value that should be passed to the process so that when it resumes
+    /// executing it knows the return value of the syscall it called.
+    unsafe fn set_syscall_return_allow(
+        &self,
+        stack_pointer: *const usize,
+        state: &mut Self::StoredState,
+        return_value: &AllowResult,
     );
 
     /// Set the function that the process should execute when it is resumed.

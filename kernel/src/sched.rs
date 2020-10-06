@@ -17,14 +17,30 @@ use crate::platform::systick::SysTick;
 use crate::platform::{Chip, Platform};
 use crate::process::{self, Task};
 use crate::returncode::ReturnCode;
-use crate::syscall::{ContextSwitchReason, SrvFactory, Syscall, SyscallReturnValue};
+use crate::syscall::{ContextSwitchReason, SrvFactory, Syscall, AllowResult, CommandResult, SubscribeResult};
 
-fn rcode_to_rval(rcode: ReturnCode) -> SyscallReturnValue{
+fn rcode_to_cval(rcode: ReturnCode) -> CommandResult {
     match rcode {
-        ReturnCode::SUCCESS => SyscallReturnValue::Success,
-        _ => SyscallReturnValue::Failure(SrvFactory::failure(rcode)),
+        ReturnCode::SUCCESS => CommandResult::Success,
+        _ => CommandResult::Failure(SrvFactory::failure(rcode)),
     }
 }
+
+fn rcode_to_aval(rcode: ReturnCode, val0: u32, val1: u32) -> AllowResult {
+    match rcode {
+        ReturnCode::SUCCESS => AllowResult::SuccessU32U32(SrvFactory::success_u32_u32(val0, val1)),
+        _ => AllowResult::FailureU32U32(SrvFactory::failure_u32_u32(rcode, val0, val1)),
+    }
+}
+
+fn rcode_to_sval(rcode: ReturnCode) -> SubscribeResult {
+    match rcode {
+        ReturnCode::SUCCESS => SubscribeResult::Success,
+        _ => SubscribeResult::Failure(SrvFactory::failure(rcode)),
+    }
+}
+
+
 
 /// The time a process is permitted to run before being pre-empted
 const KERNEL_TICK_DURATION_US: u32 = 10000;
@@ -389,7 +405,7 @@ impl Kernel {
                             // decide how to handle the error.
                             if syscall != Syscall::YIELD {
                                 if let Err(response) = platform.filter_syscall(process, &syscall) {
-                                    process.set_syscall_return_value(&response);
+                                    process.set_syscall_return_command(&response);
                                     continue;
                                 }
                             }
@@ -407,7 +423,7 @@ impl Kernel {
                                             res
                                         );
                                     }
-                                    process.set_syscall_return_value(&res);
+                                    process.set_syscall_return_command(&res);
                                 }
                                 Syscall::YIELD => {
                                     if config::CONFIG.trace_syscalls {
@@ -462,8 +478,8 @@ impl Kernel {
                                             res
                                         );
                                     }
-                                    let sres = rcode_to_rval(res);
-                                    process.set_syscall_return_value(&sres);
+                                    let sres = rcode_to_sval(res);
+                                    process.set_syscall_return_subscribe(&sres);
                                 }
                                 Syscall::COMMAND {
                                     driver_number,
@@ -495,8 +511,8 @@ impl Kernel {
                                             res
                                         );
                                     }
-                                    let sres = rcode_to_rval(res);
-                                    process.set_syscall_return_value(&sres);
+                                    let cres = rcode_to_cval(res);
+                                    process.set_syscall_return_command(&cres);
                                 }
                                 Syscall::ALLOW {
                                     driver_number,
@@ -531,8 +547,8 @@ impl Kernel {
                                             res
                                         );
                                     }
-                                    let sres = rcode_to_rval(res);
-                                    process.set_syscall_return_value(&sres);
+                                    let ares = rcode_to_aval(res, allow_address as u32, allow_size as u32);
+                                    process.set_syscall_return_allow(&ares);
                                 }
                             }
                         }

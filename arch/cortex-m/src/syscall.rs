@@ -3,7 +3,7 @@
 
 use core::fmt::Write;
 use core::ptr::{read_volatile, write_volatile};
-use kernel::syscall::SyscallReturnValue;
+use kernel::syscall::{AllowResult, CommandResult, SubscribeResult, SyscallResult};
 
 /// This is used in the syscall handler. When set to 1 this means the
 /// svc_handler was called. Marked `pub` because it is used in the cortex-m*
@@ -92,11 +92,43 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
         Ok((stack_pointer as *mut usize).offset(-8))
     }
 
-    unsafe fn set_syscall_return_value(
+    unsafe fn set_syscall_return_command(
         &self,
         stack_pointer: *const usize,
         _state: &mut Self::StoredState,
-        return_value: &SyscallReturnValue,
+        return_value: &CommandResult,
+    ) {
+        // For the Cortex-M arch we set these in the same place that r0-r3 were
+        // passed. 
+        // TODO: do these need to be volatile? -pal
+        let stack_bottom = stack_pointer as *mut u32;
+        return_value.into_registers(&mut *stack_bottom.offset(0),
+                                    &mut *stack_bottom.offset(4),
+                                    &mut *stack_bottom.offset(8),
+                                    &mut *stack_bottom.offset(12))
+    }
+
+    unsafe fn set_syscall_return_subscribe(
+        &self,
+        stack_pointer: *const usize,
+        _state: &mut Self::StoredState,
+        return_value: &SubscribeResult,
+    ) {
+        // For the Cortex-M arch we set these in the same place that r0-r3 were
+        // passed. 
+        // TODO: do these need to be volatile? -pal
+        let stack_bottom = stack_pointer as *mut u32;
+        return_value.into_registers(&mut *stack_bottom.offset(0),
+                                    &mut *stack_bottom.offset(4),
+                                    &mut *stack_bottom.offset(8),
+                                    &mut *stack_bottom.offset(12))
+    }
+
+    unsafe fn set_syscall_return_allow(
+        &self,
+        stack_pointer: *const usize,
+        _state: &mut Self::StoredState,
+        return_value: &AllowResult,
     ) {
         // For the Cortex-M arch we set these in the same place that r0-r3 were
         // passed. 

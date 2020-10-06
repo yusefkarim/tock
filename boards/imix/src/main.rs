@@ -114,7 +114,7 @@ struct Imix {
         sam4l::acifc::Acifc<'static>,
     >,
     spi: &'static capsules::spi::Spi<'static, VirtualSpiMasterDevice<'static, sam4l::spi::SpiHw>>,
-    ipc: kernel::ipc::IPC,
+    //    ipc: kernel::ipc::IPC,
     ninedof: &'static capsules::ninedof::NineDof<'static>,
     radio_driver: &'static capsules::ieee802154::RadioDriver<'static>,
     udp_driver: &'static capsules::net::udp::UDPDriver<'static>,
@@ -485,7 +485,7 @@ pub unsafe fn reset_handler() {
         analog_comparator,
         crc,
         spi: spi_syscalls,
-        ipc: kernel::ipc::IPC::new(board_kernel, &grant_cap),
+//        ipc: kernel::ipc::IPC::new(board_kernel, &grant_cap),
         ninedof,
         radio_driver,
         udp_driver,
@@ -559,5 +559,5 @@ pub unsafe fn reset_handler() {
         debug!("{:?}", err);
     });
 
-    board_kernel.kernel_loop(&imix, chip, Some(&imix.ipc), &main_cap);
+    board_kernel.kernel_loop(&imix, chip, None, &main_cap);
 }

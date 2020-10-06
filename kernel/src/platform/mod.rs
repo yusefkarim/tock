@@ -7,6 +7,7 @@ use core::fmt::Write;
 
 pub mod mpu;
 crate mod systick;
+use crate::ReturnCode;
 
 /// Interface for individual boards.
 ///
@@ -55,7 +56,7 @@ pub trait Platform {
         &self,
         _process: &dyn process::ProcessType,
         _syscall: &syscall::Syscall,
-    ) -> Result<(), syscall::SyscallReturnValue> {
+    ) -> Result<(), ReturnCode> {
         Ok(())
     }
 }

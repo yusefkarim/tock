@@ -11,6 +11,7 @@ use crate::mem::{AppSlice, Shared};
 use crate::process;
 use crate::returncode::ReturnCode;
 use crate::sched::Kernel;
+use crate::syscall::{AllowResult, SrvFactory};
 
 /// Syscall number
 pub const DRIVER_NUM: usize = 0x10000;
@@ -221,32 +222,19 @@ impl Driver for IPC {
         &self,
         appid: AppId,
         target_id: usize,
-        slice: Option<AppSlice<Shared, u8>>,
-    ) -> ReturnCode {
+        slice: AppSlice<Shared, u8>,
+    ) -> AllowResult {
         if target_id == 0 {
-            match slice {
-                Some(slice_data) => {
-                    let ret = self.data.kernel.process_until(|p| {
-                        let s = p.get_process_name().as_bytes();
-                        // are slices equal?
-                        if s.len() == slice_data.len()
-                            && s.iter().zip(slice_data.iter()).all(|(c1, c2)| c1 == c2)
-                        {
-                            ReturnCode::SuccessWithValue {
-                                value: (p.appid().id() as usize) + 1,
-                            }
-                        } else {
-                            ReturnCode::FAIL
-                        }
-                    });
-                    if ret != ReturnCode::FAIL {
-                        return ret;
-                    }
+            self.data.kernel.process_until(|p| {
+                let s = p.get_process_name().as_bytes();
+                // are slices equal?
+                if s.len() == slice.len()
+                    && s.iter().zip(slice.iter()).all(|(c1, c2)| c1 == c2) {
+                  return AllowResult::Success(SrvFactory::success_allow(slice));
+                } else {
+    		  return AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EINVAL, slice));
                 }
-                None => {}
-            }
-
-            return ReturnCode::EINVAL; /* AppSlice must have non-zero length */
+            });
         }
         self.data
             .enter(appid, |data, _| {
@@ -259,16 +247,16 @@ impl Driver for IPC {
                 match otherapp.map_or(None, |oa| oa.index()) {
                     Some(i) => {
                         data.shared_memory.get_mut(i).map_or(
-                            ReturnCode::EINVAL, /* Target process does not exist */
+                            AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EINVAL, slice)),
                             |smem| {
-                                *smem = slice;
-                                ReturnCode::SUCCESS
+                                *smem = Some(slice);
+                                AllowResult::Success(SrvFactory::success_allow(slice))
                             },
                         )
                     }
-                    None => ReturnCode::EINVAL,
+                    None => AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EINVAL, slice))
                 }
             })
-            .unwrap_or(ReturnCode::EBUSY)
+            .unwrap_or(AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EBUSY, slice)))
     }
 }
