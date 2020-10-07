@@ -11,6 +11,7 @@ use crate::config;
 use crate::debug;
 use crate::grant::Grant;
 use crate::ipc;
+use crate::mem::{AppSlice, Shared};
 use crate::memop;
 use crate::platform::mpu::MPU;
 use crate::platform::systick::SysTick;
@@ -26,10 +27,10 @@ fn rcode_to_cval(rcode: ReturnCode) -> CommandResult {
     }
 }
 
-fn rcode_to_aval(rcode: ReturnCode, val0: u32, val1: u32) -> AllowResult {
+fn rcode_to_aval(rcode: ReturnCode, slice: AppSlice<Shared, u8>) -> AllowResult {
     match rcode {
-        ReturnCode::SUCCESS => AllowResult::SuccessU32U32(SrvFactory::success_u32_u32(val0, val1)),
-        _ => AllowResult::FailureU32U32(SrvFactory::failure_u32_u32(rcode, val0, val1)),
+        ReturnCode::SUCCESS => AllowResult::Success(SrvFactory::success_allow(slice)),
+        _ => AllowResult::Failure(SrvFactory::failure_allow(rcode, slice)),
     }
 }
 
@@ -405,7 +406,8 @@ impl Kernel {
                             // decide how to handle the error.
                             if syscall != Syscall::YIELD {
                                 if let Err(response) = platform.filter_syscall(process, &syscall) {
-                                    process.set_syscall_return_command(&response);
+                                    let res = CommandResult::Failure(SrvFactory::failure(response));
+                                    process.set_syscall_return_command(&res);
                                     continue;
                                 }
                             }

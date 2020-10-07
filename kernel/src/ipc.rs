@@ -225,18 +225,26 @@ impl Driver for IPC {
         slice: AppSlice<Shared, u8>,
     ) -> AllowResult {
         if target_id == 0 {
-            self.data.kernel.process_until(|p| {
+            let ret = self.data.kernel.process_until(|p| {
                 let s = p.get_process_name().as_bytes();
                 // are slices equal?
                 if s.len() == slice.len()
                     && s.iter().zip(slice.iter()).all(|(c1, c2)| c1 == c2) {
-                  return AllowResult::Success(SrvFactory::success_allow(slice));
+                  return ReturnCode::SUCCESS;
                 } else {
-    		  return AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EINVAL, slice));
+                  return ReturnCode::FAIL;
                 }
             });
+            match ret {
+                ReturnCode::SUCCESS => {
+                    return AllowResult::Success(SrvFactory::success_allow(slice));
+                }
+                _ => {
+                    return AllowResult::Failure(SrvFactory::failure_allow(ret, slice));
+                }
+            }
         }
-        self.data
+        let ret = self.data
             .enter(appid, |data, _| {
                 // Lookup the index of the app based on the passed in
                 // identifier. This also let's us check that the other app is
@@ -247,16 +255,20 @@ impl Driver for IPC {
                 match otherapp.map_or(None, |oa| oa.index()) {
                     Some(i) => {
                         data.shared_memory.get_mut(i).map_or(
-                            AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EINVAL, slice)),
+                            ReturnCode::EINVAL,
                             |smem| {
                                 *smem = Some(slice);
-                                AllowResult::Success(SrvFactory::success_allow(slice))
+                                ReturnCode::SUCCESS
                             },
                         )
-                    }
-                    None => AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EINVAL, slice))
+                    },
+                    None => ReturnCode::EINVAL,
                 }
             })
-            .unwrap_or(AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::EBUSY, slice)))
+            .unwrap_or(ReturnCode::EBUSY);
+        match ret {
+            ReturnCode::SUCCESS => AllowResult::Success(SrvFactory::success_allow(slice)),
+            _ => AllowResult::Failure(SrvFactory::failure_allow(ret, slice))
+        }
     }
 }
