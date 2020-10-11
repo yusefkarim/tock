@@ -5,7 +5,7 @@ use core::fmt::Write;
 use crate::process;
 use crate::returncode::ReturnCode;
 
-use crate::mem::{AppPtr, AppSlice, Shared};
+use crate::mem::{AppSlice, Shared};
 
 /// The syscall number assignments.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -97,11 +97,9 @@ pub struct SyscallSuccessU32U32U32 {rval0: u32, rval1: u32, rval2: u32}
 #[derive(Debug)]
 pub struct SyscallSuccessU32U64 {rval0: u32, rval1: u64}
 
-#[derive(Debug)]
 pub struct SyscallSuccessAllow {buf: AppSlice<Shared, u8>}
-
-#[derive(Debug)]
 pub struct SyscallFailureAllow {error: ReturnCode, buf: AppSlice<Shared, u8>}
+pub struct SyscallFailureAllowRaw {error: ReturnCode, addr: u32, len: u32}
 
 /// Enumeration of the possible return values from a system call.
 #[derive(Debug)]
@@ -127,9 +125,9 @@ pub enum SubscribeResult {
     Success
 }
 
-#[derive(Debug)]
 pub enum AllowResult {
     Failure (SyscallFailureAllow),
+    FailureRaw (SyscallFailureAllowRaw),
     Success (SyscallSuccessAllow),
 }
 
@@ -172,16 +170,22 @@ impl SyscallResult for SubscribeResult {
 impl SyscallResult for AllowResult {
     fn into_registers(&self, r0: &mut u32, r1: &mut u32, r2: &mut u32, r3: &mut u32) {
         match self {
-            AllowResult::FailureU32U32(fail) => {
+            AllowResult::Failure(fail) => {
                 *r0 = 2;
                 *r1 = Self::return_code_to_error_code(fail.error);
-                *r2 = fail.val.ptr.ptr as u32;
-                *r3 = fail.val.ptr.len as u32;
+                *r2 = fail.buf.ptr() as u32;
+                *r3 = fail.buf.len() as u32;
             },
-            AllowResult::SuccessU32U32(success) => {
+            AllowResult::FailureRaw(fail) => {
+                *r0 = 2;
+                *r1 = Self::return_code_to_error_code(fail.error);
+                *r2 = fail.addr;
+                *r3 = fail.len;
+            },
+            AllowResult::Success(success) => {
                 *r0 = 130;
-                *r1 = success.val.ptr.ptr as u32;
-                *r2 = success.val.ptr.len as u32;	
+                *r1 = success.buf.ptr() as u32;
+                *r2 = success.buf.len() as u32;	
             },
         }
     }
@@ -289,6 +293,10 @@ impl SrvFactory {
 
     pub fn failure_allow(error: ReturnCode, buf: AppSlice<Shared, u8>) -> SyscallFailureAllow {
         SyscallFailureAllow {error, buf}
+    } 
+
+    pub fn failure_allow_raw(error: ReturnCode, addr: u32, len: u32) -> SyscallFailureAllowRaw {
+        SyscallFailureAllowRaw {error, addr, len}
     } 
 }
 

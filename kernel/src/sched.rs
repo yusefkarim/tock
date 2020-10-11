@@ -11,6 +11,7 @@ use crate::config;
 use crate::debug;
 use crate::grant::Grant;
 use crate::ipc;
+use crate::mem::{AppSlice, Shared};
 use crate::memop;
 use crate::platform::mpu::MPU;
 use crate::platform::systick::SysTick;
@@ -26,11 +27,15 @@ fn rcode_to_cval(rcode: ReturnCode) -> CommandResult {
     }
 }
 
-fn rcode_to_aval(rcode: ReturnCode, val0: u32, val1: u32) -> AllowResult {
+fn rcode_to_aval(rcode: ReturnCode, slice: AppSlice<Shared, u8>) -> AllowResult {
     match rcode {
-        ReturnCode::SUCCESS => AllowResult::SuccessU32U32(SrvFactory::success_u32_u32(val0, val1)),
-        _ => AllowResult::FailureU32U32(SrvFactory::failure_u32_u32(rcode, val0, val1)),
+        ReturnCode::SUCCESS => AllowResult::Success(SrvFactory::success_allow(slice)),
+        _ => AllowResult::Failure(SrvFactory::failure_allow(rcode, slice)),
     }
+}
+
+fn rcode_to_aval_raw(rcode: ReturnCode, addr: u32, len: u32) -> AllowResult {
+    AllowResult::FailureRaw(SrvFactory::failure_allow_raw(rcode, addr, len))
 }
 
 fn rcode_to_sval(rcode: ReturnCode) -> SubscribeResult {
@@ -529,26 +534,28 @@ impl Kernel {
                                                         subdriver_number,
                                                         oslice,
                                                     ),
-                                                    Err(err) => err, /* memory not valid */
+                                                    Err(err) => AllowResult::FailureRaw(SrvFactory::failure_allow_raw(err, allow_address as u32, allow_size as u32)), /* memory not valid */
                                                 }
                                             }
-                                            None => ReturnCode::ENODEVICE,
+                                            None => AllowResult::FailureRaw(SrvFactory::failure_allow_raw(ReturnCode::ENODEVICE, allow_address as u32, allow_size as u32)),
                                         }
                                     });
                                     if config::CONFIG.trace_syscalls {
                                         debug!(
-                                            "[{:?}] allow({:#x}, {}, @{:#x}, {:#x}) = {:#x} = {:?}",
+                                            "[{:?}] allow({:#x}, {}, @{:#x}, {:#x}) = {:?}",
                                             process.appid(),
                                             driver_number,
                                             subdriver_number,
                                             allow_address as usize,
                                             allow_size,
-                                            usize::from(res),
-                                            res
+                                            match res {
+                                                AllowResult::Failure(_)    => "Failure",
+                                                AllowResult::FailureRaw(_) => "FailureRaw",
+                                                AllowResult::Success(_) => "Success",
+                                            }
                                         );
                                     }
-                                    let ares = rcode_to_aval(res, allow_address as u32, allow_size as u32);
-                                    process.set_syscall_return_allow(&ares);
+                                    process.set_syscall_return_allow(&res);
                                 }
                             }
                         }

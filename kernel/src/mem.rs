@@ -18,14 +18,14 @@ pub struct Shared;
 /// Base type for an AppSlice that holds the raw pointer to the memory region
 /// the app shared with the kernel.
 pub struct AppPtr<L, T> {
-    ptr: NonNull<T>,
+    ptr: *mut T,
     process: AppId,
     _phantom: PhantomData<L>,
 }
 
 impl<L, T> AppPtr<L, T> {
     /// Safety: Trusts that `ptr` points to userspace memory in `appid`
-    unsafe fn new(ptr: NonNull<T>, appid: AppId) -> AppPtr<L, T> {
+    unsafe fn new(ptr: *mut T, appid: AppId) -> AppPtr<L, T> {
         AppPtr {
             ptr: ptr,
             process: appid,
@@ -38,13 +38,13 @@ impl<L, T> Deref for AppPtr<L, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { self.ptr.as_ref() }
+        unsafe { &*self.ptr }
     }
 }
 
 impl<L, T> DerefMut for AppPtr<L, T> {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { self.ptr.as_mut() }
+        unsafe { &mut *self.ptr}
     }
 }
 
@@ -53,7 +53,7 @@ impl<L, T> Drop for AppPtr<L, T> {
         self.process
             .kernel
             .process_map_or((), self.process, |process| unsafe {
-                process.free(self.ptr.as_ptr() as *mut u8)
+                process.free(self.ptr as *mut u8)
             })
     }
 }
@@ -69,7 +69,7 @@ pub struct AppSlice<L, T> {
 impl<L, T> AppSlice<L, T> {
     /// Safety: Trusts that `ptr` + `len` is a buffer in `appid` and that no
     /// other references to that memory range exist.
-    crate unsafe fn new(ptr: NonNull<T>, len: usize, appid: AppId) -> AppSlice<L, T> {
+    crate unsafe fn new(ptr: *mut T, len: usize, appid: AppId) -> AppSlice<L, T> {
         AppSlice {
             ptr: AppPtr::new(ptr, appid),
             len: len,
@@ -84,7 +84,7 @@ impl<L, T> AppSlice<L, T> {
     /// Get the raw pointer to the buffer. This will be a pointer inside of the
     /// app's memory region.
     pub fn ptr(&self) -> *const T {
-        self.ptr.ptr.as_ptr()
+        self.ptr.ptr
     }
 
     /// Provide access to one app's AppSlice to another app. This is used for
@@ -123,12 +123,12 @@ impl<L, T> AppSlice<L, T> {
 
 impl<L, T> AsRef<[T]> for AppSlice<L, T> {
     fn as_ref(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.ptr.ptr.as_ref(), self.len) }
+        unsafe { slice::from_raw_parts(&*self.ptr.ptr, self.len) }
     }
 }
 
 impl<L, T> AsMut<[T]> for AppSlice<L, T> {
     fn as_mut(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.ptr.ptr.as_mut(), self.len) }
+        unsafe { slice::from_raw_parts_mut(&mut *self.ptr.ptr, self.len) }
     }
 }

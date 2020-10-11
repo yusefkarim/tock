@@ -9,6 +9,8 @@ pub mod mpu;
 crate mod systick;
 use crate::ReturnCode;
 
+use syscall::CommandResult;
+
 /// Interface for individual boards.
 ///
 /// Each board should define a struct which implements this trait. This trait is
@@ -56,7 +58,7 @@ pub trait Platform {
         &self,
         _process: &dyn process::ProcessType,
         _syscall: &syscall::Syscall,
-    ) -> Result<(), ReturnCode> {
+    ) -> Result<(), CommandResult> {
         Ok(())
     }
 }
