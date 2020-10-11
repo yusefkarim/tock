@@ -34,8 +34,8 @@ fn rcode_to_aval(rcode: ReturnCode, slice: AppSlice<Shared, u8>) -> AllowResult 
     }
 }
 
-fn rcode_to_aval_raw(rcode: ReturnCode, addr: u32, len: u32) -> AllowResult {
-    AllowResult::FailureRaw(SrvFactory::failure_allow_raw(rcode, addr, len))
+fn rcode_to_aval_noslice(rcode: ReturnCode, addr: u32, len: u32) -> AllowResult {
+    AllowResult::FailureNoSlice(SrvFactory::failure_allow_noslice(rcode, addr, len))
 }
 
 fn rcode_to_sval(rcode: ReturnCode) -> SubscribeResult {
@@ -534,10 +534,10 @@ impl Kernel {
                                                         subdriver_number,
                                                         oslice,
                                                     ),
-                                                    Err(err) => AllowResult::FailureRaw(SrvFactory::failure_allow_raw(err, allow_address as u32, allow_size as u32)), /* memory not valid */
+                                                    Err(err) => AllowResult::FailureNoSlice(SrvFactory::failure_allow_noslice(err, allow_address as u32, allow_size as u32)), /* memory not valid */
                                                 }
                                             }
-                                            None => AllowResult::FailureRaw(SrvFactory::failure_allow_raw(ReturnCode::ENODEVICE, allow_address as u32, allow_size as u32)),
+                                            None => AllowResult::FailureNoSlice(SrvFactory::failure_allow_noslice(ReturnCode::ENODEVICE, allow_address as u32, allow_size as u32)),
                                         }
                                     });
                                     if config::CONFIG.trace_syscalls {
@@ -550,7 +550,7 @@ impl Kernel {
                                             allow_size,
                                             match res {
                                                 AllowResult::Failure(_)    => "Failure",
-                                                AllowResult::FailureRaw(_) => "FailureRaw",
+                                                AllowResult::FailureNoSlice(_) => "FailureNoSlice",
                                                 AllowResult::Success(_) => "Success",
                                             }
                                         );

@@ -97,9 +97,14 @@ pub struct SyscallSuccessU32U32U32 {rval0: u32, rval1: u32, rval2: u32}
 #[derive(Debug)]
 pub struct SyscallSuccessU32U64 {rval0: u32, rval1: u64}
 
+// Allow has two failure structs because usually there is an AppSlice
+// and so using it is convenient/captures borrow semantics. But in the
+// case that an allow fails because the memory region passed is
+// invalid, there is no AppSlice (since it would be invalid). So we
+// need to be able to return an error without an AppSlice. -pal
 pub struct SyscallSuccessAllow {buf: AppSlice<Shared, u8>}
 pub struct SyscallFailureAllow {error: ReturnCode, buf: AppSlice<Shared, u8>}
-pub struct SyscallFailureAllowRaw {error: ReturnCode, addr: u32, len: u32}
+pub struct SyscallFailureAllowNoSlice {error: ReturnCode, ptr: u32, len: u32}
 
 /// Enumeration of the possible return values from a system call.
 #[derive(Debug)]
@@ -127,7 +132,7 @@ pub enum SubscribeResult {
 
 pub enum AllowResult {
     Failure (SyscallFailureAllow),
-    FailureRaw (SyscallFailureAllowRaw),
+    FailureNoSlice (SyscallFailureAllowNoSlice),
     Success (SyscallSuccessAllow),
 }
 
@@ -176,10 +181,10 @@ impl SyscallResult for AllowResult {
                 *r2 = fail.buf.ptr() as u32;
                 *r3 = fail.buf.len() as u32;
             },
-            AllowResult::FailureRaw(fail) => {
+            AllowResult::FailureNoSlice(fail) => {
                 *r0 = 2;
                 *r1 = Self::return_code_to_error_code(fail.error);
-                *r2 = fail.addr;
+                *r2 = fail.ptr;
                 *r3 = fail.len;
             },
             AllowResult::Success(success) => {
@@ -293,11 +298,11 @@ impl SrvFactory {
 
     pub fn failure_allow(error: ReturnCode, buf: AppSlice<Shared, u8>) -> SyscallFailureAllow {
         SyscallFailureAllow {error, buf}
-    } 
+    }
 
-    pub fn failure_allow_raw(error: ReturnCode, addr: u32, len: u32) -> SyscallFailureAllowRaw {
-        SyscallFailureAllowRaw {error, addr, len}
-    } 
+    pub fn failure_allow_noslice(error: ReturnCode, ptr: u32, len: u32) -> SyscallFailureAllowNoSlice {
+        SyscallFailureAllowNoSlice {error, ptr, len}
+    }
 }
 
 /// This trait must be implemented by the architecture of the chip Tock is
