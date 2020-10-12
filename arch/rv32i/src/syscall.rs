@@ -4,7 +4,7 @@ use core::fmt::Write;
 
 use crate::csr::mcause;
 use kernel;
-use kernel::syscall::{ContextSwitchReason, SyscallReturnValue};
+use kernel::syscall::{ContextSwitchReason, AllowResult, CommandResult, SubscribeResult, SyscallResult};
 
 /// This holds all of the state that the kernel must keep for the process when
 /// the process is not executing.
@@ -67,11 +67,37 @@ impl kernel::syscall::UserspaceKernelBoundary for SysCall {
         Ok(stack_pointer as *mut usize)
     }
 
-    unsafe fn set_syscall_return_value(
+    unsafe fn set_syscall_return_command(
         &self,
         _stack_pointer: *const usize,
         state: &mut Self::StoredState,
-        return_value: &SyscallReturnValue,
+        return_value: &CommandResult
+    ) {
+        // But the return value into a0-a3 for when the process
+        // resumes executing.
+        return_value.into_registers(&mut (state.regs[R_A0] as u32), &mut (state.regs[R_A1] as u32),
+                                    &mut (state.regs[R_A2] as u32), &mut (state.regs[R_A3] as u32));
+    }
+
+
+    unsafe fn set_syscall_return_subscribe(
+        &self,
+        _stack_pointer: *const usize,
+        state: &mut Self::StoredState,
+        return_value: &SubscribeResult
+    ) {
+        // But the return value into a0-a3 for when the process
+        // resumes executing.
+        return_value.into_registers(&mut (state.regs[R_A0] as u32), &mut (state.regs[R_A1] as u32),
+                                    &mut (state.regs[R_A2] as u32), &mut (state.regs[R_A3] as u32));
+    }
+
+
+    unsafe fn set_syscall_return_allow(
+        &self,
+        _stack_pointer: *const usize,
+        state: &mut Self::StoredState,
+        return_value: &AllowResult
     ) {
         // But the return value into a0-a3 for when the process
         // resumes executing.

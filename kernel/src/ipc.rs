@@ -256,7 +256,7 @@ impl Driver for IPC {
                     Some(i) => {
                         data.shared_memory.get_mut(i).map_or(
                             ReturnCode::EINVAL,
-                            |smem| {
+                            |_smem| {
                                 // Obviously should not be commented out, but done so that
                                 // kernel can compile
         //                        *smem = Some(slice);

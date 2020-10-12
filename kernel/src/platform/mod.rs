@@ -7,7 +7,6 @@ use core::fmt::Write;
 
 pub mod mpu;
 crate mod systick;
-use crate::ReturnCode;
 
 use syscall::CommandResult;
 

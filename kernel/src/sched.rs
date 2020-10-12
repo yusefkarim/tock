@@ -11,7 +11,6 @@ use crate::config;
 use crate::debug;
 use crate::grant::Grant;
 use crate::ipc;
-use crate::mem::{AppSlice, Shared};
 use crate::memop;
 use crate::platform::mpu::MPU;
 use crate::platform::systick::SysTick;
@@ -25,17 +24,6 @@ fn rcode_to_cval(rcode: ReturnCode) -> CommandResult {
         ReturnCode::SUCCESS => CommandResult::Success,
         _ => CommandResult::Failure(SrvFactory::failure(rcode)),
     }
-}
-
-fn rcode_to_aval(rcode: ReturnCode, slice: AppSlice<Shared, u8>) -> AllowResult {
-    match rcode {
-        ReturnCode::SUCCESS => AllowResult::Success(SrvFactory::success_allow(slice)),
-        _ => AllowResult::Failure(SrvFactory::failure_allow(rcode, slice)),
-    }
-}
-
-fn rcode_to_aval_noslice(rcode: ReturnCode, addr: u32, len: u32) -> AllowResult {
-    AllowResult::FailureNoSlice(SrvFactory::failure_allow_noslice(rcode, addr, len))
 }
 
 fn rcode_to_sval(rcode: ReturnCode) -> SubscribeResult {

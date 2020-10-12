@@ -38,6 +38,8 @@ use core::cmp;
 use kernel::common::cells::{OptionalCell, TakeCell};
 use kernel::hil::uart;
 use kernel::{AppId, AppSlice, Callback, Driver, Grant, ReturnCode, Shared};
+use kernel::syscall::{CommandResult, AllowResult, SubscribeResult, SrvFactory};
+use kernel::generate_empty_shared_slice;
 
 /// Syscall driver number.
 use crate::driver;
@@ -192,24 +194,31 @@ impl Driver for Console<'a> {
         &self,
         appid: AppId,
         allow_num: usize,
-        slice: Option<AppSlice<Shared, u8>>,
-    ) -> ReturnCode {
+        slice: AppSlice<Shared, u8>,
+    ) -> AllowResult {
         match allow_num {
             1 => self
                 .apps
                 .enter(appid, |app, _| {
-                    app.write_buffer = slice;
-                    ReturnCode::SUCCESS
-                })
-                .unwrap_or_else(|err| err.into()),
+                    let old = app.write_buffer.replace(slice);
+                    let rslice = match old {
+                        Some(s) => s,
+                        None => generate_empty_shared_slice(appid),
+                    };
+                    AllowResult::Success(SrvFactory::success_allow(rslice))
+                }).unwrap_or_else(|err| AllowResult::Failure(SrvFactory::failure_allow(err.into(), slice))),
             2 => self
                 .apps
                 .enter(appid, |app, _| {
-                    app.read_buffer = slice;
-                    ReturnCode::SUCCESS
+                    let old = app.read_buffer.replace(slice);
+                    let rslice = match old {
+                        Some(s) => s,
+                        None => generate_empty_shared_slice(appid),
+                    };
+                    AllowResult::Success(SrvFactory::success_allow(rslice))
                 })
-                .unwrap_or_else(|err| err.into()),
-            _ => ReturnCode::ENOSUPPORT,
+                .unwrap_or_else(|err| AllowResult::Failure(SrvFactory::failure_allow(err.into(), slice))),
+            _ => AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::ENOSUPPORT, slice))
         }
     }
 

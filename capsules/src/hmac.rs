@@ -30,11 +30,13 @@ pub const DRIVER_NUM: usize = driver::NUM::Hmac as usize;
 use core::cell::Cell;
 use core::convert::TryInto;
 use core::marker::PhantomData;
+use kernel::generate_empty_shared_slice;
 use kernel::common::cells::{OptionalCell, TakeCell};
 use kernel::common::leasable_buffer::LeasableBuffer;
 use kernel::hil::digest;
 use kernel::hil::digest::DigestType;
 use kernel::{AppId, AppSlice, Callback, Driver, Grant, ReturnCode, Shared};
+use kernel::syscall::{AllowResult, SrvFactory};
 
 pub struct HmacDriver<'a, H: digest::Digest<'a, T>, T: 'static + DigestType> {
     hmac: &'a H,
@@ -302,38 +304,48 @@ impl<H: digest::Digest<'a, T> + digest::HMACSha256, T: DigestType> Driver for Hm
         &self,
         appid: AppId,
         allow_num: usize,
-        slice: Option<AppSlice<Shared, u8>>,
-    ) -> ReturnCode {
+        slice: AppSlice<Shared, u8>,
+    ) -> AllowResult {
         match allow_num {
             // Pass buffer for the key to be in
             0 => self
                 .apps
                 .enter(appid, |app, _| {
-                    app.key = slice;
-                    ReturnCode::SUCCESS
+                    let old = app.key.replace(slice);
+                    let rslice = match old {
+                        Some(s) => s,
+                        None => generate_empty_shared_slice(appid),
+                    };
+                    AllowResult::Success(SrvFactory::success_allow(rslice))
                 })
-                .unwrap_or(ReturnCode::FAIL),
+                .unwrap_or_else(|err| AllowResult::Failure(SrvFactory::failure_allow(err.into(), slice))),
 
             // Pass buffer for the data to be in
             1 => self
                 .apps
                 .enter(appid, |app, _| {
-                    app.data = slice;
-                    ReturnCode::SUCCESS
+                    let old = app.data.replace(slice);
+                    let rslice = match old {
+                        Some(s) => s,
+                        None => generate_empty_shared_slice(appid),
+                    };
+                    AllowResult::Success(SrvFactory::success_allow(rslice))
                 })
-                .unwrap_or(ReturnCode::FAIL),
-
+                .unwrap_or_else(|err| AllowResult::Failure(SrvFactory::failure_allow(err.into(), slice))),
             // Pass buffer for the digest to be in.
             2 => self
                 .apps
                 .enter(appid, |app, _| {
-                    app.dest = slice;
-                    ReturnCode::SUCCESS
+                    let old = app.dest.replace(slice);
+                    let rslice = match old {
+                        Some(s) => s,
+                        None => generate_empty_shared_slice(appid),
+                    };
+                    AllowResult::Success(SrvFactory::success_allow(rslice))
                 })
-                .unwrap_or(ReturnCode::FAIL),
-
+                .unwrap_or_else(|err| AllowResult::Failure(SrvFactory::failure_allow(err.into(), slice))),
             // default
-            _ => ReturnCode::ENOSUPPORT,
+            _ => AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::ENOSUPPORT, slice)),
         }
     }
 

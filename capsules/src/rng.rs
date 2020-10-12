@@ -18,12 +18,14 @@
 //! ```
 
 use core::cell::Cell;
+use kernel::generate_empty_shared_slice;
 use kernel::common::cells::OptionalCell;
 use kernel::hil::entropy;
 use kernel::hil::entropy::{Entropy32, Entropy8};
 use kernel::hil::rng;
 use kernel::hil::rng::{Client, Continue, Random, Rng};
 use kernel::{AppId, AppSlice, Callback, Driver, Grant, ReturnCode, Shared};
+use kernel::syscall::{AllowResult, SrvFactory};
 
 /// Syscall driver number.
 use crate::driver;
@@ -136,18 +138,22 @@ impl<'a> Driver for RngDriver<'a> {
         &self,
         appid: AppId,
         allow_num: usize,
-        slice: Option<AppSlice<Shared, u8>>,
-    ) -> ReturnCode {
-        // pass buffer in from application
+        slice: AppSlice<Shared, u8>,
+    ) -> AllowResult {
+        // pass buffer in from application 
         match allow_num {
             0 => self
                 .apps
                 .enter(appid, |app, _| {
-                    app.buffer = slice;
-                    ReturnCode::SUCCESS
-                })
-                .unwrap_or_else(|err| err.into()),
-            _ => ReturnCode::ENOSUPPORT,
+                    let old = app.buffer.replace(slice);
+                    let rslice = match old {
+                        Some(s) => s,
+                        None => generate_empty_shared_slice(appid),
+                    };
+                    AllowResult::Success(SrvFactory::success_allow(rslice))
+                }).
+                unwrap_or_else(|err| AllowResult::Failure(SrvFactory::failure_allow(err.into(), slice))),
+            _ => AllowResult::Failure(SrvFactory::failure_allow(ReturnCode::ENOSUPPORT, slice))
         }
     }
 

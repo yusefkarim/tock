@@ -2,7 +2,6 @@
 
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
-use core::ptr::NonNull;
 use core::slice;
 
 use crate::callback::AppId;
@@ -55,6 +54,12 @@ impl<L, T> Drop for AppPtr<L, T> {
             .process_map_or((), self.process, |process| unsafe {
                 process.free(self.ptr as *mut u8)
             })
+    }
+}
+
+pub fn generate_empty_shared_slice(appid: AppId) -> AppSlice<Shared, u8> {
+    unsafe {
+        AppSlice::new(0xdeadbeef as *mut u8, 0, appid)
     }
 }
 
