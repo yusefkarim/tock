@@ -61,3 +61,75 @@ For instructions about how to receive RTT messages on the host, see the
 
 See the [nrf52dk README](../nrf52dk/README.md) for information about debugging
 the nRF52840dk.
+
+## Bootloader stuff
+
+1. clone adafruit bootloader
+
+2. `make BOARD=pca10056 flash` will install the adafruit bootloader
+
+3. Then flash the tock bootloader
+
+4. Get a bin of the adafruit bootloader
+
+
+
+## adafruit -> tock
+
+adafruit-nrfutil --verbose dfu serial -pkg bootloader-0xf4000.zip -p /dev/cu.usbmodem14101 -b 115200 --singlebank
+
+<RESET>
+
+tockloader flash ~/git/tock-bootloader/target/thumbv7em-none-eabi/release/nrf52-cdc-bootloader-0x0.bin  --address 0
+
+
+
+## tock -> adafruit
+
+tockloader flash ~/git/tock-bootloader/target/thumbv7em-none-eabi/release/nrf52-cdc-bootloader-0x10000.bin  --address 0x10000
+
+
+
+cd Adafruit_nRF52_Bootloader/_build/build-pca10056
+
+arm-none-eabi-objcopy -O binary --remove-section .uicrBootStartAddress --remove-section .uicrMbrParamsPageAddress --gap-fill 0xff pca10056_bootloader-0.3.2-190-geab7e68.out pca10056_bootloader-0.3.2-190-geab7e68.bin
+
+
+
+
+
+tockloader flash /Users/bradjc/git/Adafruit_nRF52_Bootloader/_build/build-pca10056/pca10056_bootloader-0.3.2-190-geab7e68.bin --address 0xf4000
+
+
+
+tockloader write 0xff000 0xff 512
+
+
+// pad mbr.bin to 4096 bytes with 0xff
+
+
+tockloader flash /Users/bradjc/git/Adafruit_nRF52_Bootloader/lib/softdevice/mbr/hex/mbr_nrf52_2.4.1_mbr.bin  --address 0x0 --pad 1280 0xff
+
+
+
+
+
+
+
+
+
+
+## bossa -> tock
+
+bossac -w ~/git/tock-bootloader/target/thumbv7em-none-eabi/release/nrf52-cdc-bootloader-0x10000.bin -p /dev/cu.usbmodem14101
+
+
+tockloader flash ~/git/tock-bootloader/target/thumbv7em-none-eabi/release/nrf52-cdc-bootloader-0x0.bin  --address 0
+
+
+
+## tock -> bossa
+
+tockloader flash ~/git/tock-bootloader/target/thumbv7em-none-eabi/release/nrf52-cdc-bootloader-0x10000.bin  --address 0x10000
+
+tockloader flash ~/git/ArduinoCore-nRF528x-mbedos/bootloaders/nano33ble/bootloader.bin --address 0
