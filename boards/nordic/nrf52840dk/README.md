@@ -76,6 +76,8 @@ the nRF52840dk.
 
 ## adafruit -> tock
 
+adafruit-nrfutil dfu genpkg --dev-type 0x0052 --dev-revision 52840  --bootloader ../../target/thumbv7em-none-eabi/release/nrf52-cdc-bootloader.bin bootloader-0x0.zip
+
 adafruit-nrfutil --verbose dfu serial -pkg bootloader-0xf4000.zip -p /dev/cu.usbmodem14101 -b 115200 --singlebank
 
 <RESET>
