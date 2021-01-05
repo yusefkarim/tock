@@ -61,9 +61,9 @@ back.
    bootloader) starts at address 0x10000. That is, when the bootloader finishes
    it starts executing at address 0x10000.
 
-    So, we will load a copy of the Tock bootloader to address 0x10000. That also means
-    we need a version of the bootloader compiled to run at address 0x10000. This bootloader
-    has already been compiled for you.
+    So, we will load a copy of the Tock bootloader to address 0x10000. That also
+    means we need a version of the bootloader compiled to run at address
+    0x10000. This bootloader has already been compiled for you.
 
     To load the first Tock bootloader ensure the Nano 33 is in bootloader mode
     by double pressing the reset button (the light should pulse), and then:
@@ -72,7 +72,8 @@ back.
     $ bossac -e -w bootloaders/tock-bootloader.v1.1.0.0x10000.bin
     ```
 
-    Now the board should boot into the Tock bootloader.
+    Now the board should boot into the Tock bootloader. When the Tock bootloader
+    is active it will tun on the "ON" LED. It will not pulse the yellow LED.
 
 3. Our last step is to use the temporary Tock bootloader to flash the real one
    at address 0x0. When the board boots it should run the Tock bootloader
